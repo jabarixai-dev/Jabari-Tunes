@@ -44,32 +44,9 @@ jobs:
           PY
       - name: Sign with the fixed Jabari key and set the version number
         run: |
-          python3 - <<'PY'
-          import re
-          p = 'android/app/build.gradle'
-          s = open(p).read()
-          s, n = re.subn(r'versionCode\s+\d+', 'versionCode ${{ github.run_number }}', s, count=1)
-          print('versionCode patched:', n)
-          s += """
-android {
-    signingConfigs {
-        jabari {
-            storeFile rootProject.file('../signing/jabari.p12')
-            storePassword 'jabari-tunes'
-            keyAlias 'jabari'
-            keyPassword 'jabari-tunes'
-            storeType 'pkcs12'
-        }
-    }
-    buildTypes {
-        debug {
-            signingConfig signingConfigs.jabari
-        }
-    }
-}
-"""
-          open(p, 'w').write(s)
-          PY
+          sed -i -E 's/versionCode [0-9]+/versionCode ${{ github.run_number }}/' android/app/build.gradle
+          cat native/signing.gradle >> android/app/build.gradle
+          grep -n "versionCode" android/app/build.gradle
       - run: npx capacitor-assets generate --android --iconBackgroundColor '#0e0e12' --iconBackgroundColorDark '#0e0e12'
       - run: npx cap sync android
       - name: Build APK

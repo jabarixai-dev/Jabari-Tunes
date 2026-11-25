@@ -1,0 +1,17 @@
+
+android {
+    signingConfigs {
+        jabari {
+            storeFile rootProject.file('../signing/jabari.p12')
+            storePassword 'jabari-tunes'
+            keyAlias 'jabari'
+            keyPassword 'jabari-tunes'
+            storeType 'pkcs12'
+        }
+    }
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.jabari
+        }
+    }
+}

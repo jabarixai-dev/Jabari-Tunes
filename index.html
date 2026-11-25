@@ -45,8 +45,8 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 .ctl .ib.on{color:var(--acc)}
 .play{width:52px;height:52px;border-radius:50%;background:var(--acc);color:#04130a!important;font-size:22px!important;display:grid;place-items:center;padding:0!important}
 
-#sheet{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;background:#000a}
-#sheet[hidden]{display:none}
+#sheet,#scanSheet{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;background:#000a}
+#sheet[hidden],#scanSheet[hidden]{display:none}
 .sb{width:100%;max-height:88vh;overflow:auto;background:var(--card);border-radius:20px 20px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .sb h2{margin:0 0 4px;font-size:18px;display:flex;justify-content:space-between;align-items:center}
 .sb .sub{color:var(--mut);font-size:13px;margin:0 0 14px}
@@ -63,6 +63,8 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 .it a.btn{text-decoration:none;display:inline-block}
 .msg{color:#ffb4a8;font-size:13px;margin-top:10px}
 .mut{color:var(--mut)}
+.it input[type=checkbox]{width:20px;height:20px;accent-color:var(--acc);flex:none}
+#newchip{margin-top:8px;color:var(--acc);border-color:var(--acc)}
 #toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--txt);color:#000;padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
 #toast.show{opacity:1}
 </style>
@@ -79,6 +81,7 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
     <button class="tab" data-v="fav">Favorites</button>
   </div>
   <div class="meta" id="stats"></div>
+  <button class="tab" id="newchip" hidden></button>
 </header>
 
 <ul id="list"></ul>
@@ -105,12 +108,23 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
   <div class="sb">
     <h2>Add music <button class="ib" id="close" aria-label="Close">✕</button></h2>
     <p class="sub">Songs are saved on this phone for offline listening.</p>
-    <button class="btn" id="pick" style="width:100%">Pick files from this phone</button>
+    <button class="btn" id="scanBtn" style="width:100%;margin-bottom:8px" hidden>Scan this phone for music</button>
+    <button class="btn ghost" id="pick" style="width:100%">Pick files from this phone</button>
     <div class="or">or paste links (one per line)</div>
     <textarea id="links" placeholder="Direct mp3 link, Internet Archive, Jamendo, SoundCloud, podcast feed, or a Spotify / YouTube / Apple Music link"></textarea>
     <div class="row"><button class="btn" id="find">Find music</button><button class="btn ghost" id="saveall" hidden>Save all</button></div>
     <div class="msg" id="notes"></div>
     <div class="res" id="res"></div>
+  </div>
+</div>
+
+
+<div id="scanSheet" hidden>
+  <div class="sb">
+    <h2>Music on this phone <button class="ib" id="scClose" aria-label="Close">✕</button></h2>
+    <p class="sub" id="scSub"></p>
+    <div class="row"><button class="btn ghost" id="scAll">Select all</button><button class="btn" id="scAdd">Add selected</button></div>
+    <div class="res" id="scList"></div>
   </div>
 </div>
 
@@ -348,10 +362,64 @@ if('mediaSession' in navigator){
   m.setActionHandler('seekto',d=>{audio.currentTime=d.seekTime});
 }
 
+/* ---------- phone scanner (Android app only) ---------- */
+const MS=NATIVE?window.Capacitor.Plugins.MediaScan:null;
+let phone=[];
+const scanSheet=$('#scanSheet');
+if(NATIVE)$('#scanBtn').hidden=false;
+async function scanPhone(){
+  const r=await MS.scan();
+  phone=(r.songs||[]).filter(s=>!tracks.some(t=>t.name===s.name&&t.size===s.size));
+}
+function renderPhone(){
+  $('#scSub').textContent=phone.length?`${phone.length} song${phone.length>1?'s':''} not in your library yet. Tick the ones to add. They are copied into the app so they keep working offline.`:'Everything on your phone is already in your library.';
+  $('#scList').innerHTML=phone.map((s,i)=>`<label class="it"><input type="checkbox" data-i="${i}"><div class="t"><b>${esc(s.title||s.name)}</b><span>${esc([/unknown/i.test(s.artist||'')?'':s.artist,fmt(s.duration/1000),mb(s.size)].filter(Boolean).join(' · '))}</span></div></label>`).join('');
+  $('#scAll').hidden=!phone.length;$('#scAdd').hidden=!phone.length;
+}
+async function openScan(){
+  sheet.hidden=true;scanSheet.hidden=false;
+  $('#scList').innerHTML='<p class="mut">Scanning…</p>';$('#scSub').textContent='';$('#scAll').hidden=$('#scAdd').hidden=true;
+  try{await scanPhone()}catch(e){
+    $('#scList').innerHTML='';
+    $('#scSub').textContent=/denied/i.test(String(e&&e.message||e))?'Jabari Tunes needs "Music and audio" access. Allow it in Android Settings, Apps, Jabari Tunes, Permissions, then try again.':'Scan failed: '+(e&&e.message||e);
+    return;
+  }
+  renderPhone();
+}
+$('#scanBtn').onclick=openScan;
+$('#newchip').onclick=openScan;
+$('#scClose').onclick=()=>{scanSheet.hidden=true;checkNew()};
+scanSheet.onclick=e=>{if(e.target===scanSheet){scanSheet.hidden=true;checkNew()}};
+$('#scAll').onclick=()=>{const bs=[...document.querySelectorAll('#scList input')];const all=bs.every(b=>b.checked);bs.forEach(b=>b.checked=!all);$('#scAll').textContent=all?'Select all':'Select none'};
+$('#scAdd').onclick=async()=>{
+  const sel=[...document.querySelectorAll('#scList input:checked')].map(i=>phone[+i.dataset.i]);
+  if(!sel.length){toast('Tick some songs first');return}
+  const btn=$('#scAdd');btn.disabled=true;let n=0,ok=0;
+  for(const s of sel){
+    btn.textContent=`Adding ${++n}/${sel.length}…`;
+    try{
+      const{path}=await MS.copyToCache({id:s.id,name:s.name});
+      const blob=await(await fetch(window.Capacitor.convertFileSrc(path))).blob();
+      await addBlob(blob,s.name,{title:s.title,artist:/unknown/i.test(s.artist||'')?'':s.artist});
+      MS.cleanup({path});ok++;
+    }catch(e){toast('Could not add '+s.name)}
+  }
+  btn.disabled=false;btn.textContent='Add selected';$('#scAll').textContent='Select all';
+  toast(`Added ${ok} song${ok===1?'':'s'}`);
+  await scanPhone().catch(()=>{});renderPhone();
+};
+async function checkNew(){
+  if(!NATIVE)return;
+  try{if(!(await MS.hasPermission()).granted)return;await scanPhone()}catch(_){return}
+  const c=$('#newchip');c.hidden=!phone.length;
+  c.textContent=`${phone.length} new song${phone.length===1?'':'s'} on your phone · Review`;
+}
+
 /* ---------- boot ---------- */
 (async()=>{
   $('#pp').innerHTML=PLAY;
   db=await openDB();await load();
+  checkNew();
   if(!NATIVE&&'serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
 </script>

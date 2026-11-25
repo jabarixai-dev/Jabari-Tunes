@@ -21,6 +21,19 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npx cap add android
+      - name: Add native code (phone music scanner)
+        run: |
+          mkdir -p android/app/src/main/java/com/jabari/tunes
+          cp native/*.java android/app/src/main/java/com/jabari/tunes/
+          python3 - <<'PY'
+          p = 'android/app/src/main/AndroidManifest.xml'
+          s = open(p).read()
+          perm = ('<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n    '
+                  '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    ')
+          if 'READ_MEDIA_AUDIO' not in s:
+              s = s.replace('<application', perm + '<application', 1)
+          open(p, 'w').write(s)
+          PY
       - run: npx capacitor-assets generate --android --iconBackgroundColor '#0e0e12' --iconBackgroundColorDark '#0e0e12'
       - run: npx cap sync android
       - name: Build APK

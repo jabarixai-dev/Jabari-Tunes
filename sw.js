@@ -1,4 +1,4 @@
-const CACHE = 'jabari-tunes-v3';
+const CACHE = 'jabari-tunes-v4';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', e => {
@@ -13,9 +13,17 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
+// Network first (so updates show up straight away), cache as the offline fallback.
+// API calls always go to the network.
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET') return;
+  const u = new URL(e.request.url);
+  if (e.request.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
   e.respondWith(
-    caches.match(e.request).then(hit => hit || fetch(e.request).catch(() => caches.match('./index.html')))
+    fetch(e.request)
+      .then(r => {
+        if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
+        return r;
+      })
+      .catch(() => caches.match(e.request).then(hit => hit || caches.match('./index.html')))
   );
 });

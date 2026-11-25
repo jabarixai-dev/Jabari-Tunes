@@ -44,6 +44,25 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 .ctl #shuf,.ctl #rep{color:var(--mut)}
 .ctl .ib.on{color:var(--acc)}
 .play{width:52px;height:52px;border-radius:50%;background:var(--acc);color:#04130a!important;font-size:22px!important;display:grid;place-items:center;padding:0!important}
+
+#sheet{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;background:#000a}
+#sheet[hidden]{display:none}
+.sb{width:100%;max-height:88vh;overflow:auto;background:var(--card);border-radius:20px 20px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.sb h2{margin:0 0 4px;font-size:18px;display:flex;justify-content:space-between;align-items:center}
+.sb .sub{color:var(--mut);font-size:13px;margin:0 0 14px}
+.sb textarea{width:100%;min-height:84px;padding:10px 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--txt);font:14px system-ui;resize:vertical}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.row .btn{flex:1}
+.or{color:var(--mut);font-size:12px;text-align:center;margin:14px 0 4px}
+.res{margin-top:12px;display:grid;gap:8px}
+.it{display:flex;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--bg)}
+.it .t{flex:1;min-width:0}
+.it b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.it span{display:block;color:var(--mut);font-size:12px}
+.it .btn{padding:7px 14px;font-size:13px;white-space:nowrap}
+.it a.btn{text-decoration:none;display:inline-block}
+.msg{color:#ffb4a8;font-size:13px;margin-top:10px}
+.mut{color:var(--mut)}
 #toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--txt);color:#000;padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
 #toast.show{opacity:1}
 </style>
@@ -78,6 +97,20 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
     <button class="ib play" id="pp"></button>
     <button class="ib" id="next">⏭</button>
     <button class="ib" id="rep" title="Repeat"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+  </div>
+</div>
+
+
+<div id="sheet" hidden>
+  <div class="sb">
+    <h2>Add music <button class="ib" id="close" aria-label="Close">✕</button></h2>
+    <p class="sub">Songs are saved on this phone for offline listening.</p>
+    <button class="btn" id="pick" style="width:100%">Pick files from this phone</button>
+    <div class="or">or paste links (one per line)</div>
+    <textarea id="links" placeholder="Direct mp3 link, Internet Archive, Jamendo, SoundCloud, podcast feed, or a Spotify / YouTube / Apple Music link"></textarea>
+    <div class="row"><button class="btn" id="find">Find music</button><button class="btn ghost" id="saveall" hidden>Save all</button></div>
+    <div class="msg" id="notes"></div>
+    <div class="res" id="res"></div>
   </div>
 </div>
 
@@ -151,20 +184,80 @@ async function readTags(file){
 }
 
 /* ---------- import ---------- */
-$('#add').onclick=()=>$('#file').click();
-$('#file').onchange=async e=>{
-  const files=[...e.target.files];let n=0,skipped=0;
-  for(const f of files){
-    if(tracks.some(t=>t.name===f.name&&t.size===f.size)){skipped++;continue}
-    const meta=parseName(f);const tg=await readTags(f);
-    if(tg.title)meta.title=tg.title;if(tg.artist)meta.artist=tg.artist;
-    await put({...meta,art:tg.art||null,tagsChecked:true,name:f.name,size:f.size,blob:f,duration:await getDuration(f),added:Date.now(),fav:false});
-    n++;
-  }
-  e.target.value='';
+async function addBlob(blob,name,pref={}){
+  if(tracks.some(t=>t.name===name&&t.size===blob.size))return'dup';
+  const fb=parseName({name});const tg=await readTags(blob);
+  await put({title:tg.title||pref.title||fb.title,artist:tg.artist||pref.artist||fb.artist,art:tg.art||null,tagsChecked:true,
+    name,size:blob.size,blob,duration:await getDuration(blob),added:Date.now(),fav:false});
   await load();
-  toast(n?`Added ${n} song${n>1?'s':''}`+(skipped?` (${skipped} already there)`:''):'Already in your library');
   if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+  return'added';
+}
+const sheet=$('#sheet');
+$('#add').onclick=()=>{sheet.hidden=false};
+$('#close').onclick=()=>{sheet.hidden=true};
+sheet.onclick=e=>{if(e.target===sheet)sheet.hidden=true};
+$('#pick').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  const files=[...e.target.files];let n=0,skipped=0;sheet.hidden=true;
+  for(const f of files){(await addBlob(f,f.name))==='added'?n++:skipped++}
+  e.target.value='';
+  toast(n?`Added ${n} song${n>1?'s':''}`+(skipped?` (${skipped} already there)`:''):'Already in your library');
+};
+
+/* ---------- link importer ---------- */
+let found=[];
+$('#find').onclick=async()=>{
+  const links=$('#links').value.match(/https?:\/\/\S+/g)||[];
+  if(!links.length){toast('Paste at least one link');return}
+  found=[];$('#notes').textContent='';$('#saveall').hidden=true;
+  $('#res').innerHTML='<p class="mut">Looking…</p>';
+  const notes=[];
+  for(const l of links){
+    try{
+      const j=await(await fetch('/api/resolve?url='+encodeURIComponent(l))).json();
+      if(j.error)notes.push(j.error);
+      found.push(...(j.results||[]));
+    }catch(_){notes.push('Could not reach the link service. Check your connection.')}
+  }
+  $('#notes').textContent=notes.join(' ');
+  renderFound();
+};
+function renderFound(){
+  const dl=found.filter(x=>x.url).length;
+  $('#saveall').hidden=dl<2;
+  $('#res').innerHTML=found.length?found.map((x,i)=>`<div class="it"><div class="t"><b>${esc(x.title||'Track')}</b>
+    <span>${esc([x.artist,x.source,x.size?mb(x.size):''].filter(Boolean).join(' · '))}</span>
+    ${x.note?`<span>${esc(x.note)}</span>`:''}</div>
+    ${x.url?`<button class="btn" data-i="${i}">Save</button>`:`<a class="btn ghost" href="${esc(x.openUrl||'#')}" target="_blank" rel="noopener">Open</a>`}</div>`).join(''):'<p class="mut">Nothing to save from those links.</p>';
+}
+async function fetchBlob(x,onp){
+  async function grab(u){
+    const r=await fetch(u);
+    if(!r.ok){let m='Download failed ('+r.status+')';try{m=(await r.json()).error||m}catch(_){}throw new Error(m)}
+    const ct=r.headers.get('content-type')||'';
+    if(/text\/html|json/.test(ct))throw new Error('That link is not an audio file');
+    const total=+r.headers.get('content-length')||x.size||0;const rd=r.body.getReader();const ch=[];let got=0;
+    for(;;){const{done,value}=await rd.read();if(done)break;ch.push(value);got+=value.length;onp(got,total)}
+    return new Blob(ch,{type:ct||'audio/mpeg'});
+  }
+  try{return await grab(x.url)}
+  catch(_){return await grab('/api/fetch?url='+encodeURIComponent(x.url))}
+}
+async function saveItem(i,btn){
+  const x=found[i];btn.disabled=true;
+  try{
+    const blob=await fetchBlob(x,(g,t)=>{btn.textContent=t?Math.round(g/t*100)+'%':mb(g)});
+    const name=(x.filename||((x.artist?x.artist+' - ':'')+x.title+'.mp3')).replace(/[\\/:*?"<>|]/g,'_');
+    const r=await addBlob(blob,name,{title:x.title,artist:x.artist});
+    btn.textContent=r==='dup'?'Already saved':'Saved ✓';
+    return true;
+  }catch(e){btn.disabled=false;btn.textContent='Retry';toast(e.message);return false}
+}
+$('#res').onclick=e=>{const b=e.target.closest('button[data-i]');if(b)saveItem(+b.dataset.i,b)};
+$('#saveall').onclick=async()=>{
+  for(const b of document.querySelectorAll('#res button[data-i]:not(:disabled)'))await saveItem(+b.dataset.i,b);
+  toast('Done');
 };
 
 /* ---------- library ---------- */

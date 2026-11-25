@@ -1,4 +1,4 @@
-const CACHE = 'jabari-tunes-v1';
+const CACHE = 'jabari-tunes-v2';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', e => {

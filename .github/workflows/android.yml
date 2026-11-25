@@ -28,10 +28,18 @@ jobs:
           python3 - <<'PY'
           p = 'android/app/src/main/AndroidManifest.xml'
           s = open(p).read()
-          perm = ('<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />\n    '
-                  '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    ')
+          perm = ''.join('<uses-permission android:name="android.permission.%s"%s />\n    ' % (n, x) for n, x in [
+              ('READ_MEDIA_AUDIO', ''),
+              ('READ_EXTERNAL_STORAGE', ' android:maxSdkVersion="32"'),
+              ('POST_NOTIFICATIONS', ''),
+              ('FOREGROUND_SERVICE', ''),
+              ('FOREGROUND_SERVICE_MEDIA_PLAYBACK', ''),
+              ('WAKE_LOCK', '')])
           if 'READ_MEDIA_AUDIO' not in s:
               s = s.replace('<application', perm + '<application', 1)
+          svc = '<service android:name=".PlaybackService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    '
+          if 'PlaybackService' not in s:
+              s = s.replace('</application>', svc + '</application>', 1)
           open(p, 'w').write(s)
           PY
       - run: npx capacitor-assets generate --android --iconBackgroundColor '#0e0e12' --iconBackgroundColorDark '#0e0e12'

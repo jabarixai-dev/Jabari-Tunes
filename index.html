@@ -45,8 +45,8 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 .ctl .ib.on{color:var(--acc)}
 .play{width:52px;height:52px;border-radius:50%;background:var(--acc);color:#04130a!important;font-size:22px!important;display:grid;place-items:center;padding:0!important}
 
-#sheet,#scanSheet{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;background:#000a}
-#sheet[hidden],#scanSheet[hidden]{display:none}
+#sheet,#scanSheet,#plSheet{position:fixed;inset:0;z-index:20;display:flex;align-items:flex-end;background:#000a}
+#sheet[hidden],#scanSheet[hidden],#plSheet[hidden]{display:none}
 .sb{width:100%;max-height:88vh;overflow:auto;background:var(--card);border-radius:20px 20px 0 0;padding:18px 16px calc(24px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
 .sb h2{margin:0 0 4px;font-size:18px;display:flex;justify-content:space-between;align-items:center}
 .sb .sub{color:var(--mut);font-size:13px;margin:0 0 14px}
@@ -63,6 +63,11 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 .it a.btn{text-decoration:none;display:inline-block}
 .msg{color:#ffb4a8;font-size:13px;margin-top:10px}
 .mut{color:var(--mut)}
+.plbar{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.plbar[hidden]{display:none}
+.plbar .plname{flex:1;min-width:0;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plbar .btn{padding:7px 14px;font-size:13px}
+.note{color:var(--mut);text-align:center;padding:40px 24px}
 .it input[type=checkbox]{width:20px;height:20px;accent-color:var(--acc);flex:none}
 #newchip{margin-top:8px;color:var(--acc);border-color:var(--acc)}
 #toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--txt);color:#000;padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
@@ -79,9 +84,11 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
   <div class="tabs">
     <button class="tab on" data-v="all">All songs</button>
     <button class="tab" data-v="fav">Favorites</button>
+    <button class="tab" data-v="pl">Playlists</button>
   </div>
   <div class="meta" id="stats"></div>
   <button class="tab" id="newchip" hidden></button>
+  <div id="plbar" class="plbar" hidden></div>
 </header>
 
 <ul id="list"></ul>
@@ -119,6 +126,16 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 </div>
 
 
+
+<div id="plSheet" hidden>
+  <div class="sb">
+    <h2>Add to playlist <button class="ib" id="plClose" aria-label="Close">✕</button></h2>
+    <p class="sub" id="plSub"></p>
+    <div class="res" id="plRes"></div>
+    <div class="row"><button class="btn" id="plMk">+ New playlist</button></div>
+  </div>
+</div>
+
 <div id="scanSheet" hidden>
   <div class="sb">
     <h2>Music on this phone <button class="ib" id="scClose" aria-label="Close">✕</button></h2>
@@ -139,17 +156,25 @@ const API=NATIVE?'https://jabaritunes.netlify.app':'';
 const PLAY=`<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`,PAUSE=`<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>`,TRASH=`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`;
 const REP0=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>`,REP1=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4" stroke-width="1.6"/></svg>`;
 const audio=$('#audio');
-let db,tracks=[],view=[],curId=null,tab='all',shuffle=false,repeat=0,objUrl=null,history=[];
+let db,tracks=[],playlists=[],plView=null,queue=[],view=[],curId=null,tab='all',shuffle=false,repeat=0,objUrl=null,history=[];
 
 /* ---------- storage (IndexedDB) ---------- */
-function openDB(){return new Promise((ok,no)=>{const r=indexedDB.open('jabari-tunes',1);
-  r.onupgradeneeded=()=>r.result.createObjectStore('tracks',{keyPath:'id',autoIncrement:true});
+function openDB(){return new Promise((ok,no)=>{const r=indexedDB.open('jabari-tunes',2);
+  r.onupgradeneeded=()=>{const d=r.result;
+    if(!d.objectStoreNames.contains('tracks'))d.createObjectStore('tracks',{keyPath:'id',autoIncrement:true});
+    if(!d.objectStoreNames.contains('playlists'))d.createObjectStore('playlists',{keyPath:'id',autoIncrement:true})};
   r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
 function run(mode,fn){return new Promise((ok,no)=>{const t=db.transaction('tracks',mode);const out=fn(t.objectStore('tracks'));
   t.oncomplete=()=>ok(out&&out.result);t.onerror=()=>no(t.error)})}
 const getAll=()=>run('readonly',s=>s.getAll());
 const put=r=>run('readwrite',s=>s.put(r));
 const del=id=>run('readwrite',s=>s.delete(id));
+function prun(mode,fn){return new Promise((ok,no)=>{const t=db.transaction('playlists',mode);const out=fn(t.objectStore('playlists'));
+  t.oncomplete=()=>ok(out&&out.result);t.onerror=()=>no(t.error)})}
+const getPl=()=>prun('readonly',s=>s.getAll());
+const putPl=r=>prun('readwrite',s=>s.put(r));
+const addPl=r=>prun('readwrite',s=>s.add(r));
+const delPl=id=>prun('readwrite',s=>s.delete(id));
 
 /* ---------- helpers ---------- */
 const fmt=s=>{if(!isFinite(s))return'0:00';s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
@@ -283,34 +308,98 @@ async function load(){
   for(const t of tracks){if(t.tagsChecked)continue;const tg=await readTags(t.blob);
     if(tg.title)t.title=tg.title;if(tg.artist)t.artist=tg.artist;t.art=tg.art||null;t.tagsChecked=true;await put(t);changed=true}
   if(changed)tracks.sort((a,b)=>b.added-a.added);
+  playlists=(await getPl()).sort((a,b)=>a.created-b.created);
   render();stats()}
 async function stats(){
   let s=`${tracks.length} song${tracks.length===1?'':'s'} · ${mb(tracks.reduce((a,t)=>a+t.size,0))}`;
   try{const e=await navigator.storage.estimate();if(e.quota)s+=` · ${mb(e.quota-e.usage)} free`}catch(_){}
   $('#stats').textContent=s;
 }
+const PLUSI='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const MINUSI='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg>';
+const LISTI='<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h12M4 12h12M4 18h8M19 15v6M16 18h6"/></svg>';
+const plCount=p=>p.trackIds.filter(id=>tracks.some(t=>t.id===id)).length;
 function render(){
   const q=$('#q').value.trim().toLowerCase();
-  view=tracks.filter(t=>(tab==='all'||t.fav)&&(!q||(t.title+' '+t.artist).toLowerCase().includes(q)));
+  const pl=plView!=null?playlists.find(p=>p.id===plView):null;
+  if(plView!=null&&!pl)plView=null;
+  const bar=$('#plbar');bar.hidden=tab!=='pl';
+  if(tab==='pl'){
+    bar.innerHTML=pl?`<button class="ib" id="plBack" aria-label="Back">‹</button><b class="plname">${esc(pl.name)}</b>
+      <button class="btn" id="plPlay">Play</button><button class="btn ghost" id="plRen">Rename</button><button class="btn ghost" id="plDel">Delete</button>`
+      :`<button class="btn" id="plNew">+ New playlist</button>`;
+  }
+  if(tab==='pl'&&!pl){
+    view=[];$('#empty').hidden=true;
+    $('#list').innerHTML=playlists.length?playlists.filter(p=>!q||p.name.toLowerCase().includes(q)).map(p=>`<li data-pl="${p.id}"><div class="art">${LISTI}</div>
+      <div class="t"><b>${esc(p.name)}</b><span>${plCount(p)} song${plCount(p)===1?'':'s'}</span></div></li>`).join('')
+      :'<div class="note">No playlists yet.<br>Tap <b>+ New playlist</b>, or use the + button next to any song.</div>';
+    return;
+  }
+  let src=tracks;
+  if(pl)src=pl.trackIds.map(id=>tracks.find(t=>t.id===id)).filter(Boolean);
+  else if(tab==='fav')src=tracks.filter(t=>t.fav);
+  view=src.filter(t=>!q||(t.title+' '+t.artist).toLowerCase().includes(q));
   $('#empty').hidden=tracks.length>0;
-  $('#list').innerHTML=view.map(t=>`<li data-id="${t.id}" class="${t.id===curId?'now':''}">
+  const empty=pl&&!view.length&&!q?'<div class="note">This playlist is empty.<br>Go to <b>All songs</b> and tap + next to a song to add it.</div>':'';
+  $('#list').innerHTML=empty||view.map(t=>`<li data-id="${t.id}" class="${t.id===curId?'now':''}">
     <div class="art" ${artStyle(t)}>${t.art?'':(t.id===curId&&!audio.paused?'♪':'🎵')}</div>
     <div class="t"><b>${esc(t.title)}</b><span>${esc(t.artist)} · ${fmt(t.duration)}</span></div>
     <button class="ib ${t.fav?'on':''}" data-a="fav">${t.fav?'♥':'♡'}</button>
-    <button class="ib" data-a="del">${TRASH}</button></li>`).join('');
+    <button class="ib" data-a="add" aria-label="Add to playlist">${PLUSI}</button>
+    <button class="ib" data-a="${pl?'rm':'del'}" aria-label="${pl?'Remove from playlist':'Delete'}">${pl?MINUSI:TRASH}</button></li>`).join('');
 }
 $('#list').onclick=async e=>{
-  const li=e.target.closest('li');if(!li)return;const id=+li.dataset.id;const a=e.target.dataset.a;
+  const li=e.target.closest('li');if(!li)return;
+  if(li.dataset.pl){plView=+li.dataset.pl;render();return}
+  const id=+li.dataset.id;const a=(e.target.closest('button')||{dataset:{}}).dataset.a;
   const t=tracks.find(x=>x.id===id);
   if(a==='fav'){t.fav=!t.fav;await put(t);render();return}
+  if(a==='add'){openAdd(id);return}
+  if(a==='rm'){const p=playlists.find(x=>x.id===plView);p.trackIds=p.trackIds.filter(x=>x!==id);await putPl(p);render();return}
   if(a==='del'){if(!confirm(`Delete "${t.title}" from this device?`))return;
     if(id===curId){audio.pause();audio.removeAttribute('src');curId=null;updateNP()}
-    await del(id);await load();return}
-  play(id);
+    await del(id);
+    for(const p of playlists)if(p.trackIds.includes(id)){p.trackIds=p.trackIds.filter(x=>x!==id);await putPl(p)}
+    await load();return}
+  queue=view.map(x=>x.id);play(id);
 };
+
+/* ---------- playlists ---------- */
+async function createPlaylist(){
+  const name=(prompt('Playlist name')||'').trim();if(!name)return null;
+  const rec={name,trackIds:[],created:Date.now()};
+  rec.id=await addPl(rec);playlists.push(rec);return rec;
+}
+$('#plbar').onclick=async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  const pl=playlists.find(p=>p.id===plView);
+  if(b.id==='plNew'){const p=await createPlaylist();if(p){plView=p.id;render()}}
+  else if(b.id==='plBack'){plView=null;render()}
+  else if(b.id==='plPlay'){if(view.length){queue=view.map(x=>x.id);play(view[0].id)}else toast('Nothing to play yet')}
+  else if(b.id==='plRen'){const n=(prompt('Rename playlist',pl.name)||'').trim();if(n){pl.name=n;await putPl(pl);render()}}
+  else if(b.id==='plDel'){if(confirm(`Delete playlist "${pl.name}"? Your songs stay in the library.`)){await delPl(pl.id);playlists=playlists.filter(p=>p.id!==pl.id);plView=null;render()}}
+};
+let addTid=null;
+function renderAdd(){
+  const t=tracks.find(x=>x.id===addTid);
+  $('#plSub').textContent=t?`${t.title}`:'';
+  $('#plRes').innerHTML=playlists.length?playlists.map(p=>`<label class="it"><input type="checkbox" data-p="${p.id}" ${p.trackIds.includes(addTid)?'checked':''}>
+    <div class="t"><b>${esc(p.name)}</b><span>${plCount(p)} song${plCount(p)===1?'':'s'}</span></div></label>`).join(''):'<p class="mut">No playlists yet. Create one below.</p>';
+}
+function openAdd(id){addTid=id;renderAdd();$('#plSheet').hidden=false}
+$('#plRes').onchange=async e=>{
+  const c=e.target.closest('input[data-p]');if(!c)return;
+  const p=playlists.find(x=>x.id===+c.dataset.p);
+  if(c.checked){if(!p.trackIds.includes(addTid))p.trackIds.push(addTid)}else p.trackIds=p.trackIds.filter(x=>x!==addTid);
+  await putPl(p);renderAdd();render();
+};
+$('#plMk').onclick=async()=>{const p=await createPlaylist();if(p){p.trackIds.push(addTid);await putPl(p);renderAdd();render();toast('Added to '+p.name)}};
+$('#plClose').onclick=()=>{$('#plSheet').hidden=true};
+$('#plSheet').onclick=e=>{if(e.target.id==='plSheet')$('#plSheet').hidden=true};
 $('#q').oninput=render;
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));tab=b.dataset.v;render()});
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));tab=b.dataset.v;plView=null;render()});
 
 /* ---------- playback ---------- */
 function play(id,{noHistory}={}){
@@ -328,20 +417,21 @@ function updateNP(){
     navigator.mediaSession.metadata=new MediaMetadata({title:t.title,artist:t.artist,album:'Jabari Tunes',artwork:t.art?[{src:artStyle(t).match(/url\((.*)\)/)[1],sizes:'512x512',type:t.art.type}]:[]});
   }
 }
+const Q=()=>{const q=queue.filter(id=>tracks.some(t=>t.id===id));return q.length?q:view.map(t=>t.id)};
 function next(auto){
-  if(!view.length)return;
+  const q=Q();if(!q.length)return;
   if(auto&&repeat===2){audio.currentTime=0;audio.play();return}
-  let i=view.findIndex(t=>t.id===curId);
-  if(shuffle&&view.length>1){let j;do{j=Math.floor(Math.random()*view.length)}while(j===i);return play(view[j].id)}
-  if(i<0||i===view.length-1){if(auto&&repeat===0)return;i=-1}
-  play(view[i+1].id);
+  let i=q.indexOf(curId);
+  if(shuffle&&q.length>1){let j;do{j=Math.floor(Math.random()*q.length)}while(j===i);return play(q[j])}
+  if(i<0||i===q.length-1){if(auto&&repeat===0)return;i=-1}
+  play(q[i+1]);
 }
 function prev(){
   if(audio.currentTime>3){audio.currentTime=0;return}
   if(history.length)return play(history.pop(),{noHistory:true});
-  const i=view.findIndex(t=>t.id===curId);if(i>0)play(view[i-1].id,{noHistory:true});
+  const q=Q();const i=q.indexOf(curId);if(i>0)play(q[i-1],{noHistory:true});
 }
-const toggle=()=>{if(!audio.src){if(view.length)play(view[0].id);return}audio.paused?audio.play():audio.pause()};
+const toggle=()=>{if(!audio.src){if(view.length){queue=view.map(t=>t.id);play(view[0].id)}return}audio.paused?audio.play():audio.pause()};
 $('#pp').onclick=toggle;$('#next').onclick=()=>next(false);$('#prev').onclick=prev;
 $('#shuf').onclick=e=>{shuffle=!shuffle;e.currentTarget.classList.toggle('on',shuffle);toast(shuffle?'Shuffle on':'Shuffle off')};
 $('#rep').onclick=e=>{repeat=(repeat+1)%3;e.currentTarget.classList.toggle('on',repeat>0);
@@ -361,6 +451,35 @@ if('mediaSession' in navigator){
   m.setActionHandler('previoustrack',prev);m.setActionHandler('nexttrack',()=>next(false));
   m.setActionHandler('seekto',d=>{audio.currentTime=d.seekTime});
 }
+
+
+/* ---------- notification + lock-screen controls (Android app) ---------- */
+const MC=NATIVE?window.Capacitor.Plugins.MediaControl:null;
+let mcArtFor=null,mcAsked=false;
+async function artB64(t){
+  if(!t||!t.art)return'';
+  try{const bm=await createImageBitmap(t.art);const c=document.createElement('canvas');c.width=c.height=256;
+    const s=Math.min(bm.width,bm.height);c.getContext('2d').drawImage(bm,(bm.width-s)/2,(bm.height-s)/2,s,s,0,0,256,256);
+    return c.toDataURL('image/jpeg',.85).split(',')[1]}catch(_){return''}
+}
+async function syncNative(){
+  if(!MC)return;
+  const t=tracks.find(x=>x.id===curId);if(!t)return;
+  if(!mcAsked&&!audio.paused){mcAsked=true;try{await MC.ensurePermission()}catch(_){}}
+  const o={title:t.title,artist:/^unknown artist$/i.test(t.artist||'')?'':t.artist,playing:!audio.paused,
+    position:Math.round((audio.currentTime||0)*1000),duration:Math.round((audio.duration||t.duration||0)*1000)};
+  if(mcArtFor!==t.id){o.art=await artB64(t);mcArtFor=t.id}
+  try{await MC.update(o)}catch(_){}
+}
+if(MC)MC.addListener('action',e=>{
+  switch(e.action){
+    case'play':audio.play();break;case'pause':audio.pause();break;
+    case'next':next(false);break;case'prev':prev();break;
+    case'seek':audio.currentTime=e.position/1000;break;
+  }
+});
+audio.addEventListener('play',syncNative);audio.addEventListener('pause',syncNative);
+audio.addEventListener('loadedmetadata',syncNative);audio.addEventListener('seeked',syncNative);
 
 /* ---------- phone scanner (Android app only) ---------- */
 const MS=NATIVE?window.Capacitor.Plugins.MediaScan:null;

@@ -25,8 +25,8 @@ input[type=search]{width:100%;margin-top:10px;padding:10px 14px;border-radius:12
 ul{list-style:none;margin:0;padding:6px 8px}
 li{display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:12px}
 li.now{background:var(--card)}
-li .art{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#2b2b3a,#1a1a24);display:grid;place-items:center;font-size:18px;flex:none}
-li.now .art{background:var(--acc);color:#04130a}
+li .art{background-size:cover;background-position:center;overflow:hidden;width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#2b2b3a,#1a1a24);display:grid;place-items:center;font-size:18px;flex:none}
+li.now .art:not([style]){background:var(--acc);color:#04130a}
 li .t{flex:1;min-width:0}
 li .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
 li .t span{display:block;color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -75,7 +75,7 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
   <div class="ctl">
     <button class="ib" id="shuf" title="Shuffle"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg></button>
     <button class="ib" id="prev">⏮</button>
-    <button class="ib play" id="pp">▶</button>
+    <button class="ib play" id="pp"></button>
     <button class="ib" id="next">⏭</button>
     <button class="ib" id="rep" title="Repeat"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
   </div>
@@ -87,6 +87,7 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 
 <script>
 const $=s=>document.querySelector(s);
+const PLAY=`<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`,PAUSE=`<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>`,TRASH=`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`;
 const REP0=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>`,REP1=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4" stroke-width="1.6"/></svg>`;
 const audio=$('#audio');
 let db,tracks=[],view=[],curId=null,tab='all',shuffle=false,repeat=0,objUrl=null,history=[];
@@ -114,14 +115,50 @@ function getDuration(blob){return new Promise(res=>{const a=new Audio();const u=
   a.preload='metadata';a.onloadedmetadata=()=>{res(a.duration);URL.revokeObjectURL(u)};a.onerror=()=>{res(0);URL.revokeObjectURL(u)};a.src=u})}
 const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
+
+/* ---------- ID3 tags (mp3 title / artist / cover) ---------- */
+const artUrls={};
+function artStyle(t){if(!t.art)return'';if(!artUrls[t.id])artUrls[t.id]=URL.createObjectURL(t.art);return`style="background-image:url(${artUrls[t.id]})"`}
+function decodeText(b,enc){
+  try{
+    if(enc===1||enc===2){let le=true,o=0;if(b[0]===0xFE&&b[1]===0xFF){le=false;o=2}else if(b[0]===0xFF&&b[1]===0xFE)o=2;else if(enc===2)le=false;
+      return new TextDecoder(le?'utf-16le':'utf-16be').decode(b.subarray(o)).replace(/\0+$/,'').trim()}
+    return new TextDecoder(enc===3?'utf-8':'iso-8859-1').decode(b).replace(/\0+$/,'').trim();
+  }catch(_){return''}
+}
+async function readTags(file){
+  try{
+    const head=new Uint8Array(await file.slice(0,10).arrayBuffer());
+    if(String.fromCharCode(head[0],head[1],head[2])!=='ID3')return{};
+    const ver=head[3];const size=((head[6]&127)<<21)|((head[7]&127)<<14)|((head[8]&127)<<7)|(head[9]&127);
+    const buf=new Uint8Array(await file.slice(10,10+Math.min(size,8*1048576)).arrayBuffer());
+    const out={};let i=0;
+    while(i+10<=buf.length){
+      const id=String.fromCharCode(buf[i],buf[i+1],buf[i+2],buf[i+3]);if(!/^[A-Z0-9]{4}$/.test(id))break;
+      let fs=ver===4?((buf[i+4]&127)<<21)|((buf[i+5]&127)<<14)|((buf[i+6]&127)<<7)|(buf[i+7]&127)
+                    :(buf[i+4]*16777216)+(buf[i+5]<<16)+(buf[i+6]<<8)+buf[i+7];
+      const d=buf.subarray(i+10,i+10+fs);i+=10+fs;if(!fs)continue;
+      if(id==='TIT2')out.title=decodeText(d.subarray(1),d[0]);
+      else if(id==='TPE1')out.artist=decodeText(d.subarray(1),d[0]);
+      else if(id==='APIC'&&!out.art){
+        const enc=d[0];let j=1;while(d[j]!==0&&j<d.length)j++;const mime=new TextDecoder().decode(d.subarray(1,j))||'image/jpeg';j++;j++;
+        if(enc===1||enc===2){while(j+1<d.length&&!(d[j]===0&&d[j+1]===0))j++;j+=2}else{while(d[j]!==0&&j<d.length)j++;j++}
+        if(j<d.length)out.art=new Blob([d.subarray(j)],{type:mime.includes('/')?mime:'image/jpeg'});
+      }
+    }
+    return out;
+  }catch(_){return{}}
+}
+
 /* ---------- import ---------- */
 $('#add').onclick=()=>$('#file').click();
 $('#file').onchange=async e=>{
   const files=[...e.target.files];let n=0,skipped=0;
   for(const f of files){
     if(tracks.some(t=>t.name===f.name&&t.size===f.size)){skipped++;continue}
-    const meta=parseName(f);
-    await put({...meta,name:f.name,size:f.size,blob:f,duration:await getDuration(f),added:Date.now(),fav:false});
+    const meta=parseName(f);const tg=await readTags(f);
+    if(tg.title)meta.title=tg.title;if(tg.artist)meta.artist=tg.artist;
+    await put({...meta,art:tg.art||null,tagsChecked:true,name:f.name,size:f.size,blob:f,duration:await getDuration(f),added:Date.now(),fav:false});
     n++;
   }
   e.target.value='';
@@ -131,7 +168,13 @@ $('#file').onchange=async e=>{
 };
 
 /* ---------- library ---------- */
-async function load(){tracks=(await getAll()).sort((a,b)=>b.added-a.added);render();stats()}
+async function load(){
+  tracks=(await getAll()).sort((a,b)=>b.added-a.added);
+  let changed=false;
+  for(const t of tracks){if(t.tagsChecked)continue;const tg=await readTags(t.blob);
+    if(tg.title)t.title=tg.title;if(tg.artist)t.artist=tg.artist;t.art=tg.art||null;t.tagsChecked=true;await put(t);changed=true}
+  if(changed)tracks.sort((a,b)=>b.added-a.added);
+  render();stats()}
 async function stats(){
   let s=`${tracks.length} song${tracks.length===1?'':'s'} · ${mb(tracks.reduce((a,t)=>a+t.size,0))}`;
   try{const e=await navigator.storage.estimate();if(e.quota)s+=` · ${mb(e.quota-e.usage)} free`}catch(_){}
@@ -142,10 +185,10 @@ function render(){
   view=tracks.filter(t=>(tab==='all'||t.fav)&&(!q||(t.title+' '+t.artist).toLowerCase().includes(q)));
   $('#empty').hidden=tracks.length>0;
   $('#list').innerHTML=view.map(t=>`<li data-id="${t.id}" class="${t.id===curId?'now':''}">
-    <div class="art">${t.id===curId&&!audio.paused?'♪':'🎵'}</div>
+    <div class="art" ${artStyle(t)}>${t.art?'':(t.id===curId&&!audio.paused?'♪':'🎵')}</div>
     <div class="t"><b>${esc(t.title)}</b><span>${esc(t.artist)} · ${fmt(t.duration)}</span></div>
     <button class="ib ${t.fav?'on':''}" data-a="fav">${t.fav?'♥':'♡'}</button>
-    <button class="ib" data-a="del">🗑</button></li>`).join('');
+    <button class="ib" data-a="del">${TRASH}</button></li>`).join('');
 }
 $('#list').onclick=async e=>{
   const li=e.target.closest('li');if(!li)return;const id=+li.dataset.id;const a=e.target.dataset.a;
@@ -173,7 +216,7 @@ function updateNP(){
   $('#np').textContent=t?t.title:'Nothing playing';
   $('#na').textContent=t?t.artist:'Pick a song to start';
   if('mediaSession' in navigator&&t){
-    navigator.mediaSession.metadata=new MediaMetadata({title:t.title,artist:t.artist,album:'Jabari Tunes'});
+    navigator.mediaSession.metadata=new MediaMetadata({title:t.title,artist:t.artist,album:'Jabari Tunes',artwork:t.art?[{src:artStyle(t).match(/url\((.*)\)/)[1],sizes:'512x512',type:t.art.type}]:[]});
   }
 }
 function next(auto){
@@ -195,7 +238,7 @@ $('#shuf').onclick=e=>{shuffle=!shuffle;e.currentTarget.classList.toggle('on',sh
 $('#rep').onclick=e=>{repeat=(repeat+1)%3;e.currentTarget.classList.toggle('on',repeat>0);
   e.currentTarget.innerHTML=repeat===2?REP1:REP0;toast(['Repeat off','Repeat all','Repeat one'][repeat])};
 
-audio.onplay=audio.onpause=()=>{$('#pp').textContent=audio.paused?'▶':'⏸';render()};
+audio.onplay=audio.onpause=()=>{$('#pp').innerHTML=audio.paused?PLAY:PAUSE;render()};
 audio.onended=()=>next(true);
 audio.ontimeupdate=()=>{
   if(audio.duration){$('#seek').value=audio.currentTime/audio.duration*1000;$('#cur').textContent=fmt(audio.currentTime);$('#dur').textContent=fmt(audio.duration)}
@@ -212,6 +255,7 @@ if('mediaSession' in navigator){
 
 /* ---------- boot ---------- */
 (async()=>{
+  $('#pp').innerHTML=PLAY;
   db=await openDB();await load();
   if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();

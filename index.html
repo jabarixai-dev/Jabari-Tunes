@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e0e12">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<title>Jabari Tunes</title>
+<style>
+:root{--bg:#0e0e12;--card:#17171e;--line:#26262f;--txt:#f2f2f6;--mut:#8b8b99;--acc:#1ed760}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{padding-bottom:190px}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+h1{font-size:20px;margin:0}
+.btn{background:var(--acc);color:#04130a;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:14px}
+.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}
+input[type=search]{width:100%;margin-top:10px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--txt);font-size:15px}
+.tabs{display:flex;gap:8px;margin-top:10px}
+.tab{padding:6px 14px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--mut);font-size:13px}
+.tab.on{background:var(--txt);color:#000;border-color:var(--txt)}
+.meta{color:var(--mut);font-size:12px;margin-top:8px}
+ul{list-style:none;margin:0;padding:6px 8px}
+li{display:flex;align-items:center;gap:12px;padding:10px 8px;border-radius:12px}
+li.now{background:var(--card)}
+li .art{width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,#2b2b3a,#1a1a24);display:grid;place-items:center;font-size:18px;flex:none}
+li.now .art{background:var(--acc);color:#04130a}
+li .t{flex:1;min-width:0}
+li .t b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+li .t span{display:block;color:var(--mut);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ib{background:none;border:0;color:var(--mut);font-size:20px;padding:6px 8px}
+.ib.on{color:var(--acc)}
+.empty{text-align:center;color:var(--mut);padding:60px 24px}
+.empty .big{font-size:48px}
+#player{position:fixed;left:0;right:0;bottom:0;background:#14141bf2;backdrop-filter:blur(14px);border-top:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom))}
+#np{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#na{color:var(--mut);font-size:12px;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seek{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:11px}
+input[type=range]{flex:1;accent-color:var(--acc);height:4px}
+.ctl{display:flex;justify-content:center;align-items:center;gap:14px;margin-top:4px}
+.ctl .ib{font-size:22px;color:var(--txt)}
+.ctl .ib.on{color:var(--acc)}
+.play{width:52px;height:52px;border-radius:50%;background:var(--acc);color:#04130a!important;font-size:22px!important;display:grid;place-items:center;padding:0!important}
+#toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);background:var(--txt);color:#000;padding:8px 16px;border-radius:999px;font-size:13px;opacity:0;transition:.25s;pointer-events:none;z-index:9}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>🎧 Jabari Tunes</h1>
+    <button class="btn" id="add">+ Add music</button>
+  </div>
+  <input type="search" id="q" placeholder="Search songs or artists">
+  <div class="tabs">
+    <button class="tab on" data-v="all">All songs</button>
+    <button class="tab" data-v="fav">Favorites</button>
+  </div>
+  <div class="meta" id="stats"></div>
+</header>
+
+<ul id="list"></ul>
+<div class="empty" id="empty" hidden>
+  <div class="big">🎵</div>
+  <p>Your library is empty.<br>Tap <b>+ Add music</b> and pick songs from your phone. They are saved on this device and play offline.</p>
+</div>
+
+<div id="player">
+  <div id="np">Nothing playing</div>
+  <div id="na">Pick a song to start</div>
+  <div class="seek"><span id="cur">0:00</span><input type="range" id="seek" min="0" max="1000" value="0"><span id="dur">0:00</span></div>
+  <div class="ctl">
+    <button class="ib" id="shuf" title="Shuffle">🔀</button>
+    <button class="ib" id="prev">⏮</button>
+    <button class="ib play" id="pp">▶</button>
+    <button class="ib" id="next">⏭</button>
+    <button class="ib" id="rep" title="Repeat">🔁</button>
+  </div>
+</div>
+
+<input type="file" id="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus" multiple hidden>
+<audio id="audio" preload="metadata"></audio>
+<div id="toast"></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const audio=$('#audio');
+let db,tracks=[],view=[],curId=null,tab='all',shuffle=false,repeat=0,objUrl=null,history=[];
+
+/* ---------- storage (IndexedDB) ---------- */
+function openDB(){return new Promise((ok,no)=>{const r=indexedDB.open('jabari-tunes',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('tracks',{keyPath:'id',autoIncrement:true});
+  r.onsuccess=()=>ok(r.result);r.onerror=()=>no(r.error)})}
+function run(mode,fn){return new Promise((ok,no)=>{const t=db.transaction('tracks',mode);const out=fn(t.objectStore('tracks'));
+  t.oncomplete=()=>ok(out&&out.result);t.onerror=()=>no(t.error)})}
+const getAll=()=>run('readonly',s=>s.getAll());
+const put=r=>run('readwrite',s=>s.put(r));
+const del=id=>run('readwrite',s=>s.delete(id));
+
+/* ---------- helpers ---------- */
+const fmt=s=>{if(!isFinite(s))return'0:00';s=Math.floor(s);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
+const mb=b=>(b/1048576).toFixed(1)+' MB';
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2200)}
+function parseName(file){
+  let n=file.name.replace(/\.[^.]+$/,'').replace(/_/g,' ').trim();
+  const i=n.indexOf(' - ');
+  return i>0?{artist:n.slice(0,i).trim(),title:n.slice(i+3).trim()}:{artist:'Unknown artist',title:n};
+}
+function getDuration(blob){return new Promise(res=>{const a=new Audio();const u=URL.createObjectURL(blob);
+  a.preload='metadata';a.onloadedmetadata=()=>{res(a.duration);URL.revokeObjectURL(u)};a.onerror=()=>{res(0);URL.revokeObjectURL(u)};a.src=u})}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+/* ---------- import ---------- */
+$('#add').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  const files=[...e.target.files];let n=0,skipped=0;
+  for(const f of files){
+    if(tracks.some(t=>t.name===f.name&&t.size===f.size)){skipped++;continue}
+    const meta=parseName(f);
+    await put({...meta,name:f.name,size:f.size,blob:f,duration:await getDuration(f),added:Date.now(),fav:false});
+    n++;
+  }
+  e.target.value='';
+  await load();
+  toast(n?`Added ${n} song${n>1?'s':''}`+(skipped?` (${skipped} already there)`:''):'Already in your library');
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+};
+
+/* ---------- library ---------- */
+async function load(){tracks=(await getAll()).sort((a,b)=>b.added-a.added);render();stats()}
+async function stats(){
+  let s=`${tracks.length} song${tracks.length===1?'':'s'} · ${mb(tracks.reduce((a,t)=>a+t.size,0))}`;
+  try{const e=await navigator.storage.estimate();if(e.quota)s+=` · ${mb(e.quota-e.usage)} free`}catch(_){}
+  $('#stats').textContent=s;
+}
+function render(){
+  const q=$('#q').value.trim().toLowerCase();
+  view=tracks.filter(t=>(tab==='all'||t.fav)&&(!q||(t.title+' '+t.artist).toLowerCase().includes(q)));
+  $('#empty').hidden=tracks.length>0;
+  $('#list').innerHTML=view.map(t=>`<li data-id="${t.id}" class="${t.id===curId?'now':''}">
+    <div class="art">${t.id===curId&&!audio.paused?'♪':'🎵'}</div>
+    <div class="t"><b>${esc(t.title)}</b><span>${esc(t.artist)} · ${fmt(t.duration)}</span></div>
+    <button class="ib ${t.fav?'on':''}" data-a="fav">${t.fav?'♥':'♡'}</button>
+    <button class="ib" data-a="del">🗑</button></li>`).join('');
+}
+$('#list').onclick=async e=>{
+  const li=e.target.closest('li');if(!li)return;const id=+li.dataset.id;const a=e.target.dataset.a;
+  const t=tracks.find(x=>x.id===id);
+  if(a==='fav'){t.fav=!t.fav;await put(t);render();return}
+  if(a==='del'){if(!confirm(`Delete "${t.title}" from this device?`))return;
+    if(id===curId){audio.pause();audio.removeAttribute('src');curId=null;updateNP()}
+    await del(id);await load();return}
+  play(id);
+};
+$('#q').oninput=render;
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));tab=b.dataset.v;render()});
+
+/* ---------- playback ---------- */
+function play(id,{noHistory}={}){
+  const t=tracks.find(x=>x.id===id);if(!t)return;
+  if(curId!==null&&!noHistory)history.push(curId);
+  if(objUrl)URL.revokeObjectURL(objUrl);
+  objUrl=URL.createObjectURL(t.blob);audio.src=objUrl;curId=id;
+  audio.play().catch(()=>{});updateNP();render();
+}
+function updateNP(){
+  const t=tracks.find(x=>x.id===curId);
+  $('#np').textContent=t?t.title:'Nothing playing';
+  $('#na').textContent=t?t.artist:'Pick a song to start';
+  if('mediaSession' in navigator&&t){
+    navigator.mediaSession.metadata=new MediaMetadata({title:t.title,artist:t.artist,album:'Jabari Tunes'});
+  }
+}
+function next(auto){
+  if(!view.length)return;
+  if(auto&&repeat===2){audio.currentTime=0;audio.play();return}
+  let i=view.findIndex(t=>t.id===curId);
+  if(shuffle&&view.length>1){let j;do{j=Math.floor(Math.random()*view.length)}while(j===i);return play(view[j].id)}
+  if(i<0||i===view.length-1){if(auto&&repeat===0)return;i=-1}
+  play(view[i+1].id);
+}
+function prev(){
+  if(audio.currentTime>3){audio.currentTime=0;return}
+  if(history.length)return play(history.pop(),{noHistory:true});
+  const i=view.findIndex(t=>t.id===curId);if(i>0)play(view[i-1].id,{noHistory:true});
+}
+const toggle=()=>{if(!audio.src){if(view.length)play(view[0].id);return}audio.paused?audio.play():audio.pause()};
+$('#pp').onclick=toggle;$('#next').onclick=()=>next(false);$('#prev').onclick=prev;
+$('#shuf').onclick=e=>{shuffle=!shuffle;e.currentTarget.classList.toggle('on',shuffle);toast(shuffle?'Shuffle on':'Shuffle off')};
+$('#rep').onclick=e=>{repeat=(repeat+1)%3;e.currentTarget.classList.toggle('on',repeat>0);
+  e.currentTarget.textContent=repeat===2?'🔂':'🔁';toast(['Repeat off','Repeat all','Repeat one'][repeat])};
+
+audio.onplay=audio.onpause=()=>{$('#pp').textContent=audio.paused?'▶':'⏸';render()};
+audio.onended=()=>next(true);
+audio.ontimeupdate=()=>{
+  if(audio.duration){$('#seek').value=audio.currentTime/audio.duration*1000;$('#cur').textContent=fmt(audio.currentTime);$('#dur').textContent=fmt(audio.duration)}
+  if('mediaSession' in navigator&&audio.duration&&navigator.mediaSession.setPositionState){
+    try{navigator.mediaSession.setPositionState({duration:audio.duration,position:audio.currentTime,playbackRate:1})}catch(_){}}
+};
+$('#seek').oninput=e=>{if(audio.duration)audio.currentTime=e.target.value/1000*audio.duration};
+if('mediaSession' in navigator){
+  const m=navigator.mediaSession;
+  m.setActionHandler('play',()=>audio.play());m.setActionHandler('pause',()=>audio.pause());
+  m.setActionHandler('previoustrack',prev);m.setActionHandler('nexttrack',()=>next(false));
+  m.setActionHandler('seekto',d=>{audio.currentTime=d.seekTime});
+}
+
+/* ---------- boot ---------- */
+(async()=>{
+  db=await openDB();await load();
+  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+})();
+</script>
+</body>
+</html>

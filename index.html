@@ -12,7 +12,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 body{padding-bottom:250px}
-header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:calc(14px + env(safe-area-inset-top)) 16px 10px;border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;justify-content:space-between;gap:10px}
 h1{font-size:20px;margin:0}
 .btn{background:var(--acc);color:#04130a;border:0;border-radius:999px;padding:9px 16px;font-weight:700;font-size:14px}
@@ -120,6 +120,8 @@ input[type=range]{flex:1;accent-color:var(--acc);height:4px}
 
 <script>
 const $=s=>document.querySelector(s);
+const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+const API=NATIVE?'https://jabaritunes.netlify.app':'';
 const PLAY=`<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`,PAUSE=`<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>`,TRASH=`<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>`;
 const REP0=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>`,REP1=`<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/><path d="M11 10h1v4" stroke-width="1.6"/></svg>`;
 const audio=$('#audio');
@@ -215,7 +217,7 @@ $('#find').onclick=async()=>{
   const notes=[];
   for(const l of links){
     try{
-      const j=await(await fetch('/api/resolve?url='+encodeURIComponent(l))).json();
+      const j=await(await fetch(API+'/api/resolve?url='+encodeURIComponent(l))).json();
       if(j.error)notes.push(j.error);
       found.push(...(j.results||[]));
     }catch(_){notes.push('Could not reach the link service. Check your connection.')}
@@ -242,7 +244,7 @@ async function fetchBlob(x,onp){
     return new Blob(ch,{type:ct||'audio/mpeg'});
   }
   try{return await grab(x.url)}
-  catch(_){return await grab('/api/fetch?url='+encodeURIComponent(x.url))}
+  catch(_){return await grab(API+'/api/fetch?url='+encodeURIComponent(x.url))}
 }
 async function saveItem(i,btn){
   const x=found[i];btn.disabled=true;
@@ -350,7 +352,7 @@ if('mediaSession' in navigator){
 (async()=>{
   $('#pp').innerHTML=PLAY;
   db=await openDB();await load();
-  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if(!NATIVE&&'serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
 </script>
 </body>

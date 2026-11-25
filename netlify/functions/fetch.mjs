@@ -24,7 +24,7 @@ export default async req => {
         else ctl.enqueue(chunk);
       },
     });
-    const headers = { 'content-type': type || 'audio/mpeg', 'cache-control': 'no-store' };
+    const headers = { 'content-type': type || 'audio/mpeg', 'cache-control': 'no-store', 'access-control-allow-origin': '*' };
     if (len) headers['content-length'] = String(len);
     return new Response(r.body.pipeThrough(limiter), { headers });
   } catch (e) {

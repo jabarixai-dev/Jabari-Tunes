@@ -1,0 +1,7 @@
+{
+  "appId": "com.jabari.tunes",
+  "appName": "Jabari Tunes",
+  "webDir": "www",
+  "backgroundColor": "#0e0e12",
+  "android": { "backgroundColor": "#0e0e12" }
+}

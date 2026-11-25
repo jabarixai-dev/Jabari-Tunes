@@ -5,7 +5,7 @@ export const AUDIO_EXT = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac)$/i;
 export const json = (o, s = 200) =>
   new Response(JSON.stringify(o), {
     status: s,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'access-control-allow-origin': '*' },
   });
 
 export const clean = s =>

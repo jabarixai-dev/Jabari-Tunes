@@ -1,0 +1,36 @@
+name: Build Android app
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['README.md', 'netlify/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: npm install
+      - run: npm run build
+      - run: npx cap add android
+      - run: npx capacitor-assets generate --android --iconBackgroundColor '#0e0e12' --iconBackgroundColorDark '#0e0e12'
+      - run: npx cap sync android
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk JabariTunes.apk
+          gh release create "app-${{ github.run_number }}" JabariTunes.apk \
+            --title "Jabari Tunes build ${{ github.run_number }}" \
+            --notes "Download JabariTunes.apk on your phone and install it."
